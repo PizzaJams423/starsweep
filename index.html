@@ -2,303 +2,186 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Star Sweep Trial</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Star Sweep</title>
 <style>
   html,body{margin:0;width:100%;height:100%;overflow:hidden;background:radial-gradient(circle at 50% 40%,#101b3f 0%,#060816 55%,#02030a 100%);font-family:system-ui,Arial,sans-serif;color:#e8f7ff}
-  canvas{display:block;width:100vw;height:100vh}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
   .hud{position:fixed;inset:0;pointer-events:none}
   .panel{position:absolute;background:rgba(8,12,28,.72);border:1px solid rgba(95,109,180,.7);border-radius:16px;backdrop-filter:blur(6px);box-shadow:0 10px 30px rgba(0,0,0,.28);padding:10px 12px}
-  .top{left:12px;top:12px;display:flex;gap:10px;align-items:center}
-  .bottom{left:12px;bottom:12px;max-width:min(520px,calc(100vw - 24px));font-size:13px;line-height:1.35}
+  .top{left:12px;top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .bottom{left:12px;bottom:12px;max-width:min(640px,calc(100vw - 24px));font-size:13px;line-height:1.35}
   .right{right:12px;top:12px;text-align:right}
   .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#1f2a52;font-size:12px;font-weight:700}
   .big{font-size:18px;font-weight:900}
+  .menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:16px;pointer-events:auto}
+  .menu.show{display:flex}
+  .menuCard{width:min(980px,100%);max-height:100%;overflow:auto;background:rgba(4,8,20,.88);border:1px solid rgba(95,109,180,.7);border-radius:24px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .menuTitle{font-size:28px;font-weight:900;margin:0 0 6px}
+  .menuSub{opacity:.85;margin:0 0 16px;font-size:14px;line-height:1.4}
+  .charGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  @media (min-aspect-ratio: 1/1){ .charGrid{grid-template-columns:repeat(4,minmax(0,1fr));} }
+  .charBtn{border:1px solid rgba(95,109,180,.7);border-radius:18px;background:rgba(8,12,28,.88);color:#e8f7ff;padding:14px;min-height:130px;display:flex;flex-direction:column;gap:8px;align-items:flex-start;justify-content:space-between;cursor:pointer;text-align:left}
+  .charBtn strong{font-size:18px}
+  .charBtn span{font-size:13px;opacity:.82;line-height:1.35}
+  .charBtn.selected{outline:2px solid #7dd3fc;box-shadow:0 0 0 3px rgba(125,211,252,.12) inset}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+  .startBtn,.restartBtn{pointer-events:auto;border:none;border-radius:14px;background:#22c55e;color:#04111a;font-weight:900;padding:12px 16px;font-size:16px;cursor:pointer}
+  .restartBtn{background:#7dd3fc}
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div class="hud">
   <div class="panel top"><span class="pill">Trial Build</span><span class="big">Star Sweep</span></div>
-  <div class="panel right"><div>Score: <span id="score">0</span></div><div>Ammo: <span id="ammo">30</span></div><div>Shields: <span id="shields">0</span></div></div>
-  <div class="panel bottom">Desktop: click/tap to fire. Targets spawn from screen edges and exit on the opposite side. Bullet contact removes the shot immediately. Ammo hitting zero ends the run.</div>
+  <div class="panel right"><div>Score: <span id="score">0</span></div><div>Ammo: <span id="ammo">30</span></div></div>
+  <div class="panel bottom" id="status">Tap and hold to rapid fire. Targets enter from the edges and exit on the opposite side. Bullet contact removes the bullet immediately. Different target types can award ammo, and shielded targets grant extra ammo when destroyed.</div>
+</div>
+<div class="menu show" id="lobby">
+  <div class="menuCard">
+    <h1 class="menuTitle">Choose your gunner</h1>
+    <p class="menuSub">Pick a character to begin. The sprites can be swapped later, but the names and roles are ready now. The game will fit portrait or landscape without forcing rotation.</p>
+    <div class="charGrid" id="charGrid"></div>
+    <div class="row" style="margin-top:16px">
+      <div class="panel" style="position:static;max-width:460px">
+        <div class="big" id="charInfoTitle">Astro</div>
+        <div id="charInfoText" style="font-size:13px;opacity:.86;line-height:1.4">Balanced gunner with steady fire and flexible play.</div>
+      </div>
+      <button class="startBtn" id="startBtn">Start Game</button>
+    </div>
+  </div>
+</div>
+<div class="menu" id="gameOverMenu">
+  <div class="menuCard" style="text-align:center">
+    <h1 class="menuTitle">Game Over</h1>
+    <p class="menuSub">Ammo reached zero.</p>
+    <button class="restartBtn" id="restartBtn">Restart</button>
+  </div>
 </div>
 <script>
-const c = document.getElementById('game');
-const x = c.getContext('2d');
-const scoreEl = document.getElementById('score');
-const ammoEl = document.getElementById('ammo');
-const shieldsEl = document.getElementById('shields');
-
-let W = innerWidth;
-let H = innerHeight;
-let score = 0;
-let ammo = 30;
-let shootCooldown = 0;
-let spawnTimer = 0;
-let gameOver = false;
-let last = performance.now();
-
-const bullets = [];
-const targets = [];
-
-function resize() {
-  W = innerWidth;
-  H = innerHeight;
-  c.width = W;
-  c.height = H;
-}
-
-function rand(a, b) {
-  return a + Math.random() * (b - a);
-}
-
-function clamp(v, a, b) {
-  return Math.max(a, Math.min(b, v));
-}
-
-function spawnTarget() {
-  const defs = [
-    { type: 'asteroid', r: 20, hp: 1, speed: 1.15, color: '#9aa3b2', ammo: 0, shieldChance: 0.12 },
-    { type: 'drone', r: 14, hp: 2, speed: 1.7, color: '#6ee7ff', ammo: 1, shieldChance: 0.20 },
-    { type: 'fighter', r: 16, hp: 3, speed: 2.2, color: '#f59e0b', ammo: 1, shieldChance: 0.28 },
-    { type: 'ufo', r: 18, hp: 4, speed: 1.35, color: '#a78bfa', ammo: 5, shieldChance: 0.35 }
+const c=document.getElementById('game'), x=c.getContext('2d');
+const scoreEl=document.getElementById('score');
+const ammoEl=document.getElementById('ammo');
+const lobby=document.getElementById('lobby');
+const gameOverMenu=document.getElementById('gameOverMenu');
+const charGrid=document.getElementById('charGrid');
+const charInfoTitle=document.getElementById('charInfoTitle');
+const charInfoText=document.getElementById('charInfoText');
+const startBtn=document.getElementById('startBtn');
+const restartBtn=document.getElementById('restartBtn');
+const characters=[
+  {name:'Astro',desc:'Balanced gunner with steady fire and flexible play.'},
+  {name:'Nova',desc:'Fast trigger style with a sharper, more aggressive rhythm.'},
+  {name:'Orbit',desc:'Smooth handling with a calm, controlled firing feel.'},
+  {name:'Vector',desc:'Precision-minded gunner with clean target tracking.'}
+];
+let selectedCharacter=0;
+let W=innerWidth,H=innerHeight,score=0,ammo=30,shootCooldown=0,spawnTimer=0,gameOver=false,gameStarted=false,last=performance.now();
+const bullets=[], targets=[], popups=[];
+function resize(){W=innerWidth;H=innerHeight;c.width=W;c.height=H}
+function rand(a,b){return a+Math.random()*(b-a)}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function setInfo(i){selectedCharacter=i; [...charGrid.children].forEach((b,idx)=>b.classList.toggle('selected',idx===i)); charInfoTitle.textContent=characters[i].name; charInfoText.textContent=characters[i].desc}
+function buildLobby(){ charGrid.innerHTML=''; characters.forEach((ch,i)=>{ const b=document.createElement('button'); b.className='charBtn'+(i===0?' selected':''); b.innerHTML=`<strong>${ch.name}</strong><span>${ch.desc}</span><span class="pill">Select</span>`; b.onclick=()=>setInfo(i); charGrid.appendChild(b); }); setInfo(0) }
+function resetGame(){ score=0; ammo=30; shootCooldown=0; spawnTimer=0; gameOver=false; bullets.length=0; targets.length=0; popups.length=0; for(let i=0;i<6;i++) spawnTarget(); }
+function startGame(){ lobby.classList.remove('show'); gameOverMenu.classList.remove('show'); gameStarted=true; resetGame() }
+function endGame(){ gameOver=true; gameOverMenu.classList.add('show') }
+function spawnPopup(text,x0,y0,color='#fff'){ popups.push({text,x:x0,y:y0,vy:-0.45,life:60,color}) }
+function spawnTarget(){
+  const defs=[
+    {type:'asteroid',name:'Asteroid',r:20,hp:1,speed:1.15,color:'#9aa3b2',ammo:0,shieldChance:0.12,move:'straight'},
+    {type:'drone',name:'Drone',r:14,hp:2,speed:1.7,color:'#6ee7ff',ammo:1,shieldChance:0.20,move:'drift'},
+    {type:'fighter',name:'Fighter',r:16,hp:3,speed:2.2,color:'#f59e0b',ammo:1,shieldChance:0.28,move:'strafe'},
+    {type:'ufo',name:'UFO',r:18,hp:4,speed:1.35,color:'#a78bfa',ammo:5,shieldChance:0.35,move:'arc'}
   ];
-
-  const t = defs[Math.floor(Math.random() * defs.length)];
-  const side = Math.floor(rand(0, 4));
-  const pad = t.r + 18;
-  let x0, y0, vx, vy;
-
-  if (side === 0) { x0 = rand(pad, W - pad); y0 = -pad; vx = rand(-0.25, 0.25); vy = t.speed; }
-  if (side === 1) { x0 = W + pad; y0 = rand(pad, H - pad); vx = -t.speed; vy = rand(-0.25, 0.25); }
-  if (side === 2) { x0 = rand(pad, W - pad); y0 = H + pad; vx = rand(-0.25, 0.25); vy = -t.speed; }
-  if (side === 3) { x0 = -pad; y0 = rand(pad, H - pad); vx = t.speed; vy = rand(-0.25, 0.25); }
-
-  if (t.type === 'drone') { vy += rand(-0.6, 0.6); }
-  if (t.type === 'fighter') { vx *= 1.4; vy *= 0.5; }
-  if (t.type === 'ufo') { vx *= 0.7; vy *= 0.7; }
-
-  targets.push({
-    type: t.type,
-    x: x0,
-    y: y0,
-    vx,
-    vy,
-    r: t.r,
-    hp: t.hp,
-    maxHp: t.hp,
-    color: t.color,
-    ammoReward: t.ammo,
-    hasShield: Math.random() < t.shieldChance,
-    shieldReward: 5,
-    phase: rand(0, Math.PI * 2),
-    spin: rand(-0.08, 0.08),
-    scale: 0.25
-  });
+  const t=defs[Math.floor(Math.random()*defs.length)];
+  const side=Math.floor(rand(0,4));
+  const pad=t.r+18;
+  let x0,y0,vx,vy;
+  if(side===0){x0=rand(pad,W-pad);y0=-pad;vx=rand(-0.25,0.25);vy=t.speed}
+  if(side===1){x0=W+pad;y0=rand(pad,H-pad);vx=-t.speed;vy=rand(-0.25,0.25)}
+  if(side===2){x0=rand(pad,W-pad);y0=H+pad;vx=rand(-0.25,0.25);vy=-t.speed}
+  if(side===3){x0=-pad;y0=rand(pad,H-pad);vx=t.speed;vy=rand(-0.25,0.25)}
+  if(t.type==='drone'){vy+=rand(-0.6,0.6)}
+  if(t.type==='fighter'){vx*=1.4;vy*=0.5}
+  if(t.type==='ufo'){vx*=0.7;vy*=0.7}
+  targets.push({type:t.type,label:t.name,x:x0,y:y0,vx,vy,r:t.r,hp:t.hp,maxHp:t.hp,color:t.color,ammoReward:t.ammo,hasShield:Math.random()<t.shieldChance,phase:rand(0,Math.PI*2),spin:rand(-0.08,0.08),scale:0.25,move:t.move,driftSeed:rand(0,Math.PI*2)})
 }
-
-function fire(tx, ty) {
-  if (gameOver || shootCooldown > 0 || ammo <= 0) return;
-  const px = W / 2;
-  const py = H * 0.83;
-  const dx = tx - px;
-  const dy = ty - py;
-  const d = Math.hypot(dx, dy) || 1;
-  bullets.push({ x: px, y: py, vx: dx / d * 9, vy: dy / d * 9, life: 70, r: 4 });
-  ammo--;
-  shootCooldown = 8;
-  if (ammo <= 0) gameOver = true;
+function fire(tx,ty){
+  if(gameOver||!gameStarted||shootCooldown>0||ammo<=0)return;
+  const px=W/2,py=H*0.83,dx=tx-px,dy=ty-py,d=Math.hypot(dx,dy)||1;
+  bullets.push({x:px,y:py,vx:dx/d*9,vy:dy/d*9,life:70,r:4});
+  ammo--; shootCooldown=8; if(ammo<=0) endGame();
 }
-
-function drawShip() {
-  const px = W / 2;
-  const py = H * 0.83;
-  x.save();
-  x.translate(px, py);
-  x.fillStyle = '#7dd3fc';
-  x.beginPath();
-  x.moveTo(0, -18);
-  x.lineTo(11, 14);
-  x.lineTo(0, 8);
-  x.lineTo(-11, 14);
-  x.closePath();
-  x.fill();
-  x.fillStyle = '#1f2937';
-  x.fillRect(-6, 2, 12, 16);
+function drawShip(){
+  const px=W/2,py=H*0.83; x.save(); x.translate(px,py);
+  x.fillStyle='#7dd3fc'; x.beginPath(); x.moveTo(0,-18); x.lineTo(11,14); x.lineTo(0,8); x.lineTo(-11,14); x.closePath(); x.fill();
+  x.fillStyle='#1f2937'; x.fillRect(-6,2,12,16); x.restore();
+}
+function drawTarget(o){
+  x.save(); x.translate(o.x,o.y); x.rotate(o.phase); x.scale(o.scale,o.scale); x.fillStyle=o.color;
+  if(o.type==='asteroid'){ x.beginPath(); for(let i=0;i<7;i++){const a=i/7*Math.PI*2, rr=18+(i%2)*5; x.lineTo(Math.cos(a)*rr,Math.sin(a)*rr)} x.closePath(); x.fill(); }
+  else if(o.type==='drone'){ x.beginPath(); x.roundRect(-12,-8,24,16,6); x.fill(); x.fillStyle='#0f172a'; x.fillRect(-4,-14,8,8); x.fillStyle=o.color; x.fillRect(-18,-3,6,6); x.fillRect(12,-3,6,6); }
+  else if(o.type==='fighter'){ x.beginPath(); x.moveTo(0,-16); x.lineTo(14,10); x.lineTo(0,6); x.lineTo(-14,10); x.closePath(); x.fill(); x.fillStyle='#0f172a'; x.fillRect(-4,-2,8,12); }
+  else { x.beginPath(); x.ellipse(0,0,18,10,0,0,Math.PI*2); x.fill(); x.fillStyle='#c4b5fd'; x.beginPath(); x.ellipse(0,0,10,5,0,0,Math.PI*2); x.fill(); }
   x.restore();
+  x.fillStyle='rgba(255,255,255,.12)'; x.fillRect(o.x-o.r,o.y-o.r-8,o.r*2,4); x.fillStyle='#22c55e'; x.fillRect(o.x-o.r,o.y-o.r-8,(o.r*2)*(o.hp/o.maxHp),4);
+  if(o.hasShield){ x.strokeStyle='rgba(125,211,252,.95)'; x.lineWidth=2; x.beginPath(); x.arc(o.x,o.y,o.r+6,0,Math.PI*2); x.stroke(); }
 }
-
-function drawTarget(o) {
-  x.save();
-  x.translate(o.x, o.y);
-  x.rotate(o.phase);
-  x.scale(o.scale, o.scale);
-  x.fillStyle = o.color;
-
-  if (o.type === 'asteroid') {
-    x.beginPath();
-    for (let i = 0; i < 7; i++) {
-      const a = i / 7 * Math.PI * 2;
-      const rr = 18 + (i % 2) * 5;
-      x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
-    }
-    x.closePath();
-    x.fill();
-  } else if (o.type === 'drone') {
-    x.beginPath();
-    x.roundRect(-12, -8, 24, 16, 6);
-    x.fill();
-    x.fillStyle = '#0f172a';
-    x.fillRect(-4, -14, 8, 8);
-    x.fillStyle = o.color;
-    x.fillRect(-18, -3, 6, 6);
-    x.fillRect(12, -3, 6, 6);
-  } else if (o.type === 'fighter') {
-    x.beginPath();
-    x.moveTo(0, -16);
-    x.lineTo(14, 10);
-    x.lineTo(0, 6);
-    x.lineTo(-14, 10);
-    x.closePath();
-    x.fill();
-    x.fillStyle = '#0f172a';
-    x.fillRect(-4, -2, 8, 12);
-  } else {
-    x.beginPath();
-    x.ellipse(0, 0, 18, 10, 0, 0, Math.PI * 2);
-    x.fill();
-    x.fillStyle = '#c4b5fd';
-    x.beginPath();
-    x.ellipse(0, 0, 10, 5, 0, 0, Math.PI * 2);
-    x.fill();
-  }
-
-  x.restore();
-
-  x.fillStyle = 'rgba(255,255,255,.12)';
-  x.fillRect(o.x - o.r, o.y - o.r - 8, o.r * 2, 4);
-  x.fillStyle = '#22c55e';
-  x.fillRect(o.x - o.r, o.y - o.r - 8, (o.r * 2) * (o.hp / o.maxHp), 4);
-  if (o.hasShield) {
-    x.strokeStyle = 'rgba(125, 211, 252, .95)';
-    x.lineWidth = 2;
-    x.beginPath();
-    x.arc(o.x, o.y, o.r + 6, 0, Math.PI * 2);
-    x.stroke();
-  }
-}
-
-function updateTargets(dt) {
-  for (let i = targets.length - 1; i >= 0; i--) {
-    const o = targets[i];
-    o.phase += o.spin * dt;
-    o.scale = Math.min(1, o.scale + 0.02 * dt);
-
-    if (o.type === 'asteroid') {
-      o.x += o.vx * dt;
-      o.y += o.vy * dt;
-    } else if (o.type === 'drone') {
-      o.x += o.vx * dt;
-      o.y += Math.sin(o.phase + o.x * 0.02) * 1.2 * dt;
-    } else if (o.type === 'fighter') {
-      o.x += o.vx * dt;
-      o.y += Math.sin(o.phase * 2.2) * 0.9 * dt;
-    } else if (o.type === 'ufo') {
-      o.x += o.vx * dt;
-      o.y += Math.sin(o.phase * 0.8) * 0.55 * dt;
-    }
-
-    const pad = o.r + 24;
-    if (o.x < -pad || o.x > W + pad || o.y < -pad || o.y > H + pad) {
-      targets.splice(i, 1);
-      continue;
-    }
-
-    for (let j = bullets.length - 1; j >= 0; j--) {
-      const b = bullets[j];
-      if (Math.hypot(b.x - o.x, b.y - o.y) < o.r + b.r) {
-        bullets.splice(j, 1);
-        o.hp--;
-        o.scale = 1.15;
-        if (o.hp <= 0) {
-          score += 10;
+function updateBullets(dt){ for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i]; b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt; if(b.life<=0||b.x<-30||b.x>W+30||b.y<-30||b.y>H+30) bullets.splice(i,1); } }
+function updateTargets(dt){
+  for(let i=targets.length-1;i>=0;i--){
+    const o=targets[i]; o.phase+=o.spin*dt; o.scale=Math.min(1,o.scale+0.02*dt);
+    if(o.move==='straight'){ o.x+=o.vx*dt; o.y+=o.vy*dt; }
+    else if(o.move==='drift'){ o.x+=o.vx*dt; o.y+=Math.sin(o.phase+o.x*0.02)*1.2*dt; }
+    else if(o.move==='strafe'){ o.x+=o.vx*dt; o.y+=Math.sin(o.phase*2.2)*0.9*dt; }
+    else if(o.move==='arc'){ o.x+=o.vx*dt; o.y+=Math.sin(o.phase*0.8)*0.55*dt; }
+    const pad=o.r+24;
+    if(o.x<-pad||o.x>W+pad||o.y<-pad||o.y>H+pad){ targets.splice(i,1); continue; }
+    for(let j=bullets.length-1;j>=0;j--){
+      const b=bullets[j];
+      if(Math.hypot(b.x-o.x,b.y-o.y)<o.r+b.r){
+        bullets.splice(j,1); o.hp--; o.scale=1.15;
+        if(o.hp<=0){
+          score+=10;
           ammo += o.ammoReward || 0;
-          if (o.hasShield) ammo += 5;
-          targets.splice(i, 1);
+          if(o.hasShield) ammo += 5;
+          spawnPopup(`+${o.ammoReward||0} ammo`,o.x,o.y-20,'#f8fafc');
+          if(o.hasShield) spawnPopup('+5 shield ammo',o.x,o.y-38,'#7dd3fc');
+          targets.splice(i,1);
         }
         break;
       }
     }
   }
 }
-
-function updateBullets(dt) {
-  for (let i = bullets.length - 1; i >= 0; i--) {
-    const b = bullets[i];
-    b.x += b.vx * dt;
-    b.y += b.vy * dt;
-    b.life -= dt;
-    if (b.life <= 0 || b.x < -30 || b.x > W + 30 || b.y < -30 || b.y > H + 30) bullets.splice(i, 1);
-  }
-}
-
-function loop(now) {
-  const dt = Math.min(2, (now - last) / 16.67);
-  last = now;
-  x.clearRect(0, 0, W, H);
-
-  x.fillStyle = 'rgba(255,255,255,.05)';
-  for (let i = 0; i < 70; i++) {
-    const sx = (i * 97) % W;
-    const sy = (i * 193 + now * 0.02) % H;
-    x.fillRect(sx, sy, 2, 2);
-  }
-
-  if (!gameOver) {
-    if (shootCooldown > 0) shootCooldown--;
-
+function updatePopups(dt){ for(let i=popups.length-1;i>=0;i--){ const p=popups[i]; p.y+=p.vy*dt; p.life-=dt; if(p.life<=0) popups.splice(i,1); } }
+function drawPopups(){ popups.forEach(p=>{ x.save(); x.globalAlpha=clamp(p.life/60,0,1); x.fillStyle=p.color; x.font='bold 16px system-ui'; x.textAlign='center'; x.fillText(p.text,p.x,p.y); x.restore(); }); }
+function updateStatus(){ scoreEl.textContent=score; ammoEl.textContent=ammo; }
+function loop(now){
+  const dt=Math.min(2,(now-last)/16.67); last=now; x.clearRect(0,0,W,H);
+  x.fillStyle='rgba(255,255,255,.05)'; for(let i=0;i<70;i++){ const sx=(i*97)%W, sy=(i*193+now*0.02)%H; x.fillRect(sx,sy,2,2); }
+  if(gameStarted && !gameOver){
+    if(shootCooldown>0) shootCooldown--;
     spawnTimer += dt;
-    if (targets.length < 8 && spawnTimer > 14) {
-      spawnTimer = 0;
-      spawnTarget();
-    }
-
-    updateBullets(dt);
-    updateTargets(dt);
-
-    ammoEl.textContent = ammo;
-    scoreEl.textContent = score;
-    shieldsEl.textContent = targets.filter(t => t.hasShield).length;
-
-    if (ammo <= 0) gameOver = true;
+    if(targets.length < 8 && spawnTimer > 14){ spawnTimer = 0; spawnTarget(); }
+    updateBullets(dt); updateTargets(dt); updatePopups(dt); updateStatus();
+    if(ammo <= 0) endGame();
   }
-
-  drawShip();
-  bullets.forEach(b => {
-    x.fillStyle = '#f8fafc';
-    x.beginPath();
-    x.arc(b.x, b.y, 4, 0, Math.PI * 2);
-    x.fill();
-  });
-  targets.forEach(drawTarget);
-
-  if (gameOver) {
-    x.fillStyle = 'rgba(0,0,0,.45)';
-    x.fillRect(0, 0, W, H);
-    x.fillStyle = '#fff';
-    x.font = 'bold 42px system-ui';
-    x.textAlign = 'center';
-    x.fillText('Game Over', W / 2, H / 2);
-  }
-
+  drawShip(); bullets.forEach(b=>{ x.fillStyle='#f8fafc'; x.beginPath(); x.arc(b.x,b.y,4,0,Math.PI*2); x.fill(); }); targets.forEach(drawTarget); drawPopups();
+  if(gameOver && gameStarted){ x.fillStyle='rgba(0,0,0,.45)'; x.fillRect(0,0,W,H); x.fillStyle='#fff'; x.font='bold 42px system-ui'; x.textAlign='center'; x.fillText('Game Over',W/2,H/2); }
   requestAnimationFrame(loop);
 }
-
-addEventListener('resize', resize);
-addEventListener('pointerdown', e => fire(e.clientX, e.clientY));
+buildLobby();
+startBtn.onclick=startGame;
+restartBtn.onclick=startGame;
+addEventListener('resize',resize);
+addEventListener('pointerdown',e=>{ if(lobby.classList.contains('show')) return; fire(e.clientX,e.clientY); }, {passive:true});
+let holdFire=null;
+addEventListener('pointerdown',e=>{ if(lobby.classList.contains('show')) return; if(holdFire) clearInterval(holdFire); holdFire=setInterval(()=>fire(e.clientX,e.clientY),110); }, {passive:true});
+addEventListener('pointerup',()=>{ if(holdFire){ clearInterval(holdFire); holdFire=null; } });
+addEventListener('pointercancel',()=>{ if(holdFire){ clearInterval(holdFire); holdFire=null; } });
 resize();
-for (let i = 0; i < 6; i++) spawnTarget();
 requestAnimationFrame(loop);
 </script>
 </body>
